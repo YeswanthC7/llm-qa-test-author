@@ -1,2 +1,6 @@
-.venv/\n.env\n__pycache__/\nplaywright/.cache/
-.venv/\n.env\n__pycache__/\nplaywright/.cache/
+.venv/
+.env
+__pycache__/
+playwright/.cache/
+.DS_Store
+*.pyc
