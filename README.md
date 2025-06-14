@@ -19,3 +19,21 @@ llm-qa-test-author/
    ```bash
    git clone <your-repo-url>
    cd llm-qa-test-author
+
+```
+
+2. **Create a virtual environment**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+3. **Install requirements**
+```bash
+pip install -r requirements.txt
+```
+
+4. **Run tests**
+```bash
+pytest
+```
