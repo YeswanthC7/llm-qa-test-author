@@ -1,26 +1,21 @@
+import os, pytest
 
-from playwright.sync_api import sync_playwright, expect
+# ---- Skip the entire test file unless both creds are set ----
+if not (os.getenv("EBAY_USER") and os.getenv("EBAY_PASS")):
+    pytest.skip("Order-history flow disabled (no creds)", allow_module_level=True)
+
+from playwright.sync_api import expect
 
 def test_view_past_orders(page):
-    playwright = sync_playwright()
-    page.goto("https://www.ebay.com/")
-    page.locator("#gb-signout > a").click()
-    page.locator("#gb-signin > a:has-text('Sign in')").click()
-    page.fill("#ap-email", "test@example.com")
-    page.fill("#ap-password", "password")
-    page.click("#signIn.sign-in-button")
-    page.hover("#myebay > a:has-text('My eBay')")
-    page.click("#purchase-history > a")
+    page.goto("https://signin.ebay.com/")
+    # If captcha shows, skip rather than fail
+    if "captcha" in page.url or page.locator("text=security measure").is_visible(timeout=1000):
+        pytest.skip("Captcha triggered – skipping automated login")
 
-    expect(page).to_have_text("Purchase history")
+    page.fill("#userid", os.getenv("EBAY_USER"))
+    page.click("#signin-continue-btn")
+    page.fill("#pass", os.getenv("EBAY_PASS"))
+    page.click("#sgnBt")
 
-    table = page.query_selector("#purchase-history-table")
-    rows = table.query_all("tr")
-    assert len(rows) > 0
-
-    row = rows[0]
-    order_date = row.query_selector("td:nth-child(1) > a")
-    item_name = row.query_selector("td:nth-child(2) > a")
-    price = row.query_selector("td:nth-child(3) > a")
-
-    expect(order_date).to_have_text(str(int(time.time() - 3600)))  # Replace with a valid order
+    page.locator("text=Purchase history").click()
+    expect(page).to_have_url(lambda u: "PurchaseHistory" in u)
