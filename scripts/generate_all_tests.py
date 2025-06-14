@@ -23,7 +23,7 @@ PROMPT = (
     "You are a senior QA engineer.\n"
     "Return ONLY valid **sync-Playwright** Python for ONE PyTest file.\n"
     "Rules:\n"
-    "• Base URLs on https://www.ebay.com/ (never placeholder domains).\n"
+    "• Base URLs on https://magento.softwaretestingboard.com/ (never placeholder domains).\n"
     "• Use stable text locators, avoid dummy IDs.\n"
     "• NO comments, markdown, async/await, or plain-English paragraphs.\n\n"
     "USER STORY:\n{story}\n"
