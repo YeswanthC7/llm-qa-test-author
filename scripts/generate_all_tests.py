@@ -77,7 +77,12 @@ def validate(code: str) -> bool:
     return not bad
 
 def auto_skip(code: str, reason: str) -> str:
-    return f'import pytest\npytest.skip("{reason}", allow_module_level=True)\n\n' + code
+    commented = "\n".join("# " + ln for ln in code.splitlines())
+    return (
+        'import pytest\n'
+        f'pytest.skip("{reason}", allow_module_level=True)\n\n'
+        f'{commented}\n'
+    )
 
 # ── HF client ───────────────────────────────────────────────────────
 if not HF_TOKEN:
