@@ -1,12 +1,15 @@
 import json, glob, statistics, sys
 
 runs = [json.load(open(p)) for p in glob.glob("pytest_run*.json")]
-durations = [r["duration"] for r in runs]
-fails     = sum(r["failed"] for r in runs)
+fails = [r["failed"] for r in runs]
+dur   = [r["duration"] for r in runs]
 
 print("── Flakiness summary ──")
-print(f" total failures across 3 runs : {fails}")
-print(f" avg  duration                : {statistics.mean(durations):.2f}s")
-print(f" stdev duration               : {statistics.stdev(durations):.2f}s" if len(durations) > 1 else "")
-if fails:
-    sys.exit(1)          # mark job red if flaky
+print(f" total failures across 3 runs : {sum(fails)}")
+print(f" avg  duration                : {statistics.mean(dur):.2f}s")
+
+# fail job *only* if results are inconsistent (some runs pass, others fail)
+if len(set(fails)) > 1:
+    print("Tests are flaky ❌")
+    sys.exit(1)
+print("No flakiness detected ✅")

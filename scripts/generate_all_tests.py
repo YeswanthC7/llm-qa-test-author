@@ -1,53 +1,67 @@
 #!/usr/bin/env python3
 """
 Generate PyTest + sync-Playwright tests from Markdown user stories
-via Hugging Face Inference API (Mistral-7B).  Retries until code
-is syntactically valid *and* free of placeholders/async/prose.
+via Hugging Face (Mistral-7B Instruct).  Retries until code is
+AST-parseable *and* free of placeholders, async/await, prose and
+runtime-red-flag selectors.
 """
 
 from __future__ import annotations
 import os, re, ast, textwrap
 from pathlib import Path
-from typing import Optional
 from huggingface_hub import InferenceClient
 
-# ── Config ───────────────────────────────────────────────────────────
-HF_TOKEN   = os.getenv("HF_TOKEN")          # export HF_TOKEN="hf_…"
-MODEL_ID   = "mistralai/Mistral-7B-Instruct-v0.2"
+# ── Config ──────────────────────────────────────────────────────────────
+HF_TOKEN    = os.getenv("HF_TOKEN")            # set in GH secrets
+MODEL_ID    = "mistralai/Mistral-7B-Instruct-v0.2"
 STORIES_DIR = Path("stories")
-OUTPUT_DIR  = Path("tests")
-OUTPUT_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR  = Path("tests"); OUTPUT_DIR.mkdir(exist_ok=True)
 MAX_RETRIES = 3
 
 PROMPT = (
     "You are a senior QA engineer.\n"
     "Return ONLY valid **sync-Playwright** Python for ONE PyTest file.\n"
     "Rules:\n"
-    "• Base URLs on https://magento.softwaretestingboard.com/ (never placeholder domains).\n"
-    "• Use stable text locators, avoid dummy IDs.\n"
-    "• NO comments, markdown, async/await, or plain-English paragraphs.\n\n"
+    "• Base URLs on https://www.ebay.com/ (never placeholder domains).\n"
+    "• Use stable text locators, avoid dummy CSS paths.\n"
+    "• No markdown, comments, async/await, or plain English paragraphs.\n"
+    "• Must not contain inner_text(), #buy-it-now-button, paypal selectors, etc.\n\n"
     "USER STORY:\n{story}\n"
 )
 
-# ── Regexes for validation ───────────────────────────────────────────
+# ── Regex validators ────────────────────────────────────────────────────
 ASYNC_RX       = re.compile(r"\bawait\b|\basync\b", re.I)
+
 PLACEHOLDER_RX = re.compile(
     r"your-website\.com|example\.com|todo_selector|#buy-it-now-button|#placeholder|TODO",
     re.I,
 )
-PROSE_LINE_RX  = re.compile(r"[A-Za-z]{30,}")  # 30+ letters ⇒ likely prose
 
-# ── Helper functions ────────────────────────────────────────────────
+# lines starting with >30 letters that aren't code-ish
+PROSE_LINE_RX  = re.compile(r"[A-Za-z]{30,}")
+
+# Runtime killers we saw: async fixtures, inner_text(), paypal button, stray await
+BAD_RUNTIME_RX = re.compile(
+    r"""
+    \basync\s+def\b        |   # async fixtures
+    inner_text\s*\(        |   # method only in async API
+    \#paypal-button        |   # placeholder selector
+    \bawait\b                  # stray await missed earlier
+    """,
+    re.I | re.X,
+)
+
+# ── Helpers ─────────────────────────────────────────────────────────────
 def clean(raw: str) -> str:
     raw = re.sub(r"```.*?```", "", raw, flags=re.S)
-    first_code = re.search(r"(?:^|\n)(from|import|def)\s+\w+", raw)
-    raw = raw[first_code.start():] if first_code else raw
-    lines = []
+    m = re.search(r"(?:^|\n)(from|import|def)\s+\w+", raw)
+    raw = raw[m.start():] if m else raw
+    fixed = []
     for ln in raw.splitlines():
         if ASYNC_RX.match(ln.lstrip()):
-            ln = "    " + ln.lstrip()  # indent stray async to keep syntax
-        lines.append(ln.rstrip())
-    return "\n".join(lines).rstrip()
+            ln = "    " + ln.lstrip()           # indent stray await
+        fixed.append(ln.rstrip())
+    return "\n".join(fixed).rstrip()
 
 def wrap_if_needed(code: str, slug: str) -> str:
     if "def test_" in code:
@@ -66,27 +80,25 @@ def validate(code: str) -> bool:
         ast.parse(textwrap.dedent(code))
     except SyntaxError:
         return False
+    prose = any(
+        PROSE_LINE_RX.search(ln) and not ln.lstrip().startswith(("import", "from", "def"))
+        for ln in code.splitlines()
+    )
     bad = (
         PLACEHOLDER_RX.search(code)
         or ASYNC_RX.search(code)
-        or any(
-            PROSE_LINE_RX.search(ln) and not ln.lstrip().startswith(("import", "from", "def"))
-            for ln in code.splitlines()
-        )
+        or BAD_RUNTIME_RX.search(code)
+        or prose
     )
     return not bad
 
 def auto_skip(code: str, reason: str) -> str:
-    commented = "\n".join("# " + ln for ln in code.splitlines())
-    return (
-        'import pytest\n'
-        f'pytest.skip("{reason}", allow_module_level=True)\n\n'
-        f'{commented}\n'
-    )
+    return f'import pytest\npytest.skip("{reason}", allow_module_level=True)\n\n' + code
 
-# ── HF client ───────────────────────────────────────────────────────
+# ── Hugging Face client ────────────────────────────────────────────────
 if not HF_TOKEN:
-    raise RuntimeError("Set HF_TOKEN →  export HF_TOKEN='hf_...'")
+    raise RuntimeError("Set HF_TOKEN  →  export HF_TOKEN='hf_...'")
+
 client = InferenceClient(model=MODEL_ID, token=HF_TOKEN)
 
 def generate_once(story: str, slug: str) -> str:
@@ -108,15 +120,13 @@ def generate_valid(story: str, slug: str) -> str:
                 print(f"  ↻  {slug}: fixed on retry {attempt}")
             return code
         print(f"  ✖  attempt {attempt} invalid ({slug})")
-    # After retries still bad → auto-skip
-    return auto_skip(code, "Placeholders or async remained after retries")
+    return auto_skip(code, "still contained placeholders/async/prose after retries")
 
-# ── Main loop ───────────────────────────────────────────────────────
+# ── Main ───────────────────────────────────────────────────────────────
 def main() -> None:
     for md in STORIES_DIR.glob("*.md"):
         slug  = md.stem
-        story = md.read_text()
-        code  = generate_valid(story, slug)
+        code  = generate_valid(md.read_text(), slug)
         (OUTPUT_DIR / f"test_{slug}.py").write_text(code)
         print(f"✔ Wrote test_{slug}.py")
 
