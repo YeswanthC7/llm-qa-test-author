@@ -1,0 +1,81 @@
+name: Generate & Run LLM Tests
+
+on: [push, pull_request]
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        playwright install --with-deps
+
+    - name: Generate Playwright tests with HF LLM
+      env:
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      run: python scripts/generate_all_tests.py
+
+    # ---------- Flakiness run #1 (baseline) ----------
+    - name: PyTest run #1
+      id: run1
+      run: |
+        echo "::group::Run #1"
+        python - <<'PY'
+        import time, subprocess, json, os
+        t0 = time.perf_counter()
+        result = subprocess.run(["pytest", "-q"], capture_output=True, text=True)
+        duration = time.perf_counter() - t0
+        failed = result.returncode
+        print(result.stdout)
+        metrics = {"duration": duration, "failed": failed}
+        with open("pytest_run1.json", "w") as f:
+            json.dump(metrics, f)
+        PY
+        echo "::endgroup::"
+
+    # ---------- Flakiness run #2 ----------
+    - name: PyTest run #2
+      id: run2
+      run: |
+        echo "::group::Run #2"
+        python - <<'PY'
+        import time, subprocess, json
+        t0 = time.perf_counter()
+        failed = subprocess.run(["pytest", "-q"]).returncode
+        duration = time.perf_counter() - t0
+        metrics = {"duration": duration, "failed": failed}
+        with open("pytest_run2.json", "w") as f:
+            import json; json.dump(metrics, f)
+        PY
+        echo "::endgroup::"
+
+    # ---------- Flakiness run #3 ----------
+    - name: PyTest run #3
+      id: run3
+      run: |
+        echo "::group::Run #3"
+        python - <<'PY'
+        import time, subprocess, json
+        t0 = time.perf_counter()
+        failed = subprocess.run(["pytest", "-q"]).returncode
+        duration = time.perf_counter() - t0
+        metrics = {"duration": duration, "failed": failed}
+        with open("pytest_run3.json", "w") as f:
+            json.dump(metrics, f)
+        PY
+        echo "::endgroup::"
+
+    # ---------- Summarise flakiness ----------
+    - name: Summarise flakiness
+      run: |
+        python scripts/summarise_flakiness.py

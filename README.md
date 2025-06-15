@@ -1,6 +1,8 @@
-# LLM-Powered QA Test Author
+# LLM-QA-Test-Author 🚀
 
-Convert plain-English user stories into runnable PyTest + Playwright E2E tests using OpenAI.
+[![CI](https://github.com/YeswanthC7/llm-qa-test-author/actions/workflows/qa.yml/badge.svg)](https://github.com/YeswanthC7/llm-qa-test-author/actions/workflows/qa.yml)
+
+Turn plain-English user stories ➜ PyTest + Playwright E2E tests, on every push.
 
 ## 📁 Repo Structure
 
@@ -37,3 +39,15 @@ pip install -r requirements.txt
 ```bash
 pytest
 ```
+
+5. **Installation & Run locally**
+```bash
+git clone https://github.com/YeswanthC7/llm-qa-test-author
+cd llm-qa-test-author
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt ; playwright install
+export HF_TOKEN="hf_…"  # your token
+python scripts/generate_all_tests.py && pytest -q
+
+##➡️ See [model_card.md](model_card.md) for prompt design, guard rails, and limitations.
+
